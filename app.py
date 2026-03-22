@@ -454,3 +454,8 @@ if st.query_params.get("debug") == "true":
             "calculated_price": price,
             "api_key_set": bool(get_alpha_vantage_key())
         })
+
+# Add at bottom of sidebar section
+if st.button("🔄 Reset to Defaults"):
+    st.session_state.clear()
+    st.rerun()
