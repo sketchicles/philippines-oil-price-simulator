@@ -119,7 +119,7 @@ def fetch_live_crude_price(api_key):
         return None, "Please enter a valid API key"
     
     try:
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=BRENT&apikey={api_key.strip()}"
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=BRENT&apikey={api_key.strip()}
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
@@ -279,6 +279,37 @@ st.markdown("""
 Interactive Game Theory Model for Crude Oil Price Scenarios & Pump Price Impact
 """)
 
+**Legal Framework**: Republic Act No. 8479 (1998) removed government authority to set fuel prices, establishing an "automatic pricing mechanism" where prices adjust based on:
+- International crude prices
+- Foreign exchange rates  
+- Market competition dynamics [[8]]
+
+**Strategic Implications**:
+- *Government (Leader)*: Limited to monitoring, quality standards, and anti-profiteering investigations; cannot impose price caps without legislative amendment [[1]]
+- *Oil Companies (Followers)*: Free to set retail prices within competitive constraints; observed strategic markups of 5-15% above cost+tax in duopoly settings
+- *Consumer Impact*: Prices reflect global volatility with 1-2 week lag; no automatic subsidy mechanism
+
+**Empirical Baseline**: As of March 2026, gasoline ~₱65-91/L, diesel ~₱75-115/L depending on region and brand [[10]][[14]]
+
+# Create a scenario explanation dictionary
+SCENARIO_EXPLANATIONS = {
+    "Status Quo (Deregulation)": """
+    **RA 8479 remains in force**: Prices adjust automatically based on international crude 
+    and exchange rates. Government monitors but cannot cap prices. Oil firms set retail 
+    prices strategically within competitive constraints.
+    """,
+    "Repeal Deregulation (Price Cap)": """
+    **Government sets price ceiling**: If RA 8479 is repealed, DOE could impose caps. 
+    Risk: If cap < landed cost + minimum margin, supply shortages may occur.
+    """,
+    "Stockpile Strategy": """
+    **Strategic inventory intervention**: Government uses subsidy funds to purchase fuel 
+    stocks, smoothing price volatility without direct price controls.
+    """
+}
+
+# Display in sidebar or below scenario selector
+st.info(SCENARIO_EXPLANATIONS[scenario])
 # ==============================================================================
 # ⚙️ SIDEBAR CONTROLS
 # ==============================================================================
@@ -463,4 +494,12 @@ st.caption("""
 **Research Disclaimer:** Prototype model for academic purposes. 
 Actual prices may vary based on market conditions, geopolitical events, and policy implementation.
 Sources: DOE Philippines, OPEC, J.P. Morgan, Goldman Sachs, Alpha Vantage (March 2026)
+""")
+
+st.caption("""
+**Sources**: 
+- Department of Energy Philippines. (2026). *Weekly Fuel Price Advisory*. 
+- Bangko Sentral ng Pilipinas. (2026). *Reference Exchange Rates*. 
+- Republic Act No. 8479: Downstream Oil Industry Deregulation Act of 1998.
+- Stackelberg oligopoly framework: Holz, F. (2013). *Endogenous shifts in OPEC market power*. 
 """)
