@@ -1,91 +1,17 @@
 # ==============================================================================
-# STREAMLIT VERSION - OPTIMIZED & FIXED
-# File: app.py
+# STREAMLIT VERSION - For Web Deployment
+# Save this as: app.py
 # ==============================================================================
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
-import pandas as pd  # ✅ FIXED: Added missing import
+import pandas as pd
 
-# ✅ OPTIMIZATION: Cache the model class to avoid re-initialization
-@st.cache_data
-def get_model():
-    class OilMarketStackelberg:
-        def __init__(self):
-            self.liters_per_barrel = 158.987
-            self.base_excise_tax = 12.00
-            self.vat_rate = 0.12
-            self.refining_margin = 0.15
-            self.freight_insurance = 2.5
-            
-        def calculate_landed_cost(self, crude_price_usd, fx_rate):
-            cost_per_barrel_php = (crude_price_usd + self.freight_insurance) * fx_rate
-            return cost_per_barrel_php / self.liters_per_barrel
-
-        def follower_response(self, cost_per_liter, scenario, subsidy_amount, price_cap):
-            base_price = cost_per_liter * (1 + self.refining_margin) + self.base_excise_tax
-            price_with_tax = base_price / (1 - self.vat_rate)
-            
-            if scenario == "Status Quo (Deregulation)":
-                strategic_markup = 2.0
-                final_price = price_with_tax + strategic_markup
-                subsidy_effect = 0
-            elif scenario == "Repeal Deregulation (Price Cap)":
-                if price_cap > 0:
-                    final_price = min(price_with_tax, price_cap)
-                else:
-                    final_price = price_with_tax
-                subsidy_effect = subsidy_amount / 1000
-            elif scenario == "Stockpile Strategy":
-                strategic_markup = 0.5
-                final_price = price_with_tax + strategic_markup
-                subsidy_effect = 0
-            else:
-                final_price = price_with_tax
-                subsidy_effect = 0
-
-            return max(0, final_price - subsidy_effect)
-
-        def run_simulation(self, crude_price, fx_rate, subsidy_billions, price_cap, scenario):
-            cost = self.calculate_landed_cost(crude_price, fx_rate)
-            pump_price = self.follower_response(cost, scenario, subsidy_billions, price_cap)
-            
-            supply_risk = "LOW"
-            if scenario == "Repeal Deregulation (Price Cap)" and price_cap > 0:
-                if price_cap < (cost * (1 + self.refining_margin)):
-                    supply_risk = "🔴 HIGH (Shortage Likely)"
-                elif price_cap < pump_price:
-                    supply_risk = "🟡 MODERATE"
-            
-            return pump_price, supply_risk, cost
-    
-    return OilMarketStackelberg()
-
-# ✅ OPTIMIZATION: Cache scenario calculations
-@st.cache_data
-def calculate_scenario_comparison(fx_rate, subsidy_billions):
-    model = get_model()
-    scenarios = [
-        "1. $200/bbl + Status Quo",
-        "2. <$200/bbl + Status Quo", 
-        "3. $200/bbl + Repeal",
-        "4. <$200/bbl + Stockpile"
-    ]
-    
-    comp_data = [
-        model.run_simulation(200, fx_rate, 0, 0, "Status Quo (Deregulation)")[0],
-        model.run_simulation(82, fx_rate, 0, 0, "Status Quo (Deregulation)")[0],
-        model.run_simulation(200, fx_rate, subsidy_billions, 90, "Repeal Deregulation (Price Cap)")[0],
-        model.run_simulation(82, fx_rate, subsidy_billions, 0, "Stockpile Strategy")[0]
-    ]
-    return scenarios, comp_data
-
-# Page Configuration - ✅ Place EARLY for faster render
+# Page Configuration
 st.set_page_config(
     page_title="PH Oil Price Simulator",
     page_icon="🛢️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # Title & Header
@@ -95,45 +21,89 @@ st.markdown("""
 Interactive Game Theory Model for Crude Oil Price Scenarios & Pump Price Impact
 """)
 
-# ✅ OPTIMIZATION: Use session state to avoid re-running on every interaction
-if 'model' not in st.session_state:
-    st.session_state.model = get_model()
-
 # Sidebar Controls
-with st.sidebar:
-    st.header("⚙️ Model Parameters")
-    
-    crude_price = st.slider(
-        "Crude Oil Price (USD/barrel)",
-        min_value=40, max_value=250, value=82, step=5
-    )
-    
-    fx_rate = st.slider(
-        "PHP/USD Exchange Rate",
-        min_value=40, max_value=70, value=58, step=1
-    )
-    
-    subsidy_billions = st.slider(
-        "Government Subsidy (Billion PHP)",
-        min_value=0, max_value=50, value=0, step=1
-    )
-    
-    price_cap = st.slider(
-        "Price Cap (PHP/Liter)",
-        min_value=0, max_value=150, value=0, step=5
-    )
-    
-    scenario = st.selectbox(
-        "Policy Scenario",
-        ["Status Quo (Deregulation)", 
-         "Repeal Deregulation (Price Cap)", 
-         "Stockpile Strategy"]
-    )
-    
-    st.info("💡 Tip: Adjust sliders to see real-time impact on pump prices")
+st.sidebar.header("⚙️ Model Parameters")
 
-# ✅ OPTIMIZATION: Run model once, reuse results
-model = st.session_state.model
+crude_price = st.sidebar.slider(
+    "Crude Oil Price (USD/barrel)",
+    min_value=40, max_value=250, value=82, step=5
+)
+
+fx_rate = st.sidebar.slider(
+    "PHP/USD Exchange Rate",
+    min_value=40, max_value=70, value=58, step=1
+)
+
+subsidy_billions = st.sidebar.slider(
+    "Government Subsidy (Billion PHP)",
+    min_value=0, max_value=50, value=0, step=1
+)
+
+price_cap = st.sidebar.slider(
+    "Price Cap (PHP/Liter)",
+    min_value=0, max_value=150, value=0, step=5
+)
+
+scenario = st.sidebar.selectbox(
+    "Policy Scenario",
+    ["Status Quo (Deregulation)", 
+     "Repeal Deregulation (Price Cap)", 
+     "Stockpile Strategy"]
+)
+
+# Model Class
+class OilMarketStackelberg:
+    def __init__(self):
+        self.liters_per_barrel = 158.987
+        self.base_excise_tax = 12.00
+        self.vat_rate = 0.12
+        self.refining_margin = 0.15
+        self.freight_insurance = 2.5
+        
+    def calculate_landed_cost(self, crude_price_usd, fx_rate):
+        cost_per_barrel_php = (crude_price_usd + self.freight_insurance) * fx_rate
+        cost_per_liter = cost_per_barrel_php / self.liters_per_barrel
+        return cost_per_liter
+
+    def follower_response(self, cost_per_liter, scenario, subsidy_amount, price_cap):
+        base_price = cost_per_liter * (1 + self.refining_margin) + self.base_excise_tax
+        price_with_tax = base_price / (1 - self.vat_rate)
+        
+        if scenario == "Status Quo (Deregulation)":
+            strategic_markup = 2.0
+            final_price = price_with_tax + strategic_markup
+            subsidy_effect = 0
+        elif scenario == "Repeal Deregulation (Price Cap)":
+            if price_cap > 0:
+                final_price = min(price_with_tax, price_cap)
+            else:
+                final_price = price_with_tax
+            subsidy_effect = subsidy_amount / 1000
+        elif scenario == "Stockpile Strategy":
+            strategic_markup = 0.5
+            final_price = price_with_tax + strategic_markup
+            subsidy_effect = 0
+        else:
+            final_price = price_with_tax
+            subsidy_effect = 0
+
+        return max(0, final_price - subsidy_effect)
+
+    def run_simulation(self, crude_price, fx_rate, subsidy_billions, price_cap, scenario):
+        cost = self.calculate_landed_cost(crude_price, fx_rate)
+        pump_price = self.follower_response(cost, scenario, subsidy_billions, price_cap)
+        
+        supply_risk = "LOW"
+        if scenario == "Repeal Deregulation (Price Cap)" and price_cap > 0:
+            if price_cap < (cost * (1 + self.refining_margin)):
+                supply_risk = "🔴 HIGH (Shortage Likely)"
+            elif price_cap < pump_price:
+                supply_risk = "🟡 MODERATE"
+        
+        return pump_price, supply_risk, cost
+
+# Run Model
+model = OilMarketStackelberg()
 price, risk, cost = model.run_simulation(crude_price, fx_rate, subsidy_billions, price_cap, scenario)
 
 # Display Metrics (3 Columns)
@@ -141,38 +111,46 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("📉 Landed Cost", f"₱{cost:.2f}/L")
 with col2:
-    st.metric("🏷️ Pump Price", f"₱{price:.2f}/L", delta=f"{price-cost:.2f} margin")
+    st.metric("🏷️ Pump Price", f"₱{price:.2f}/L")
 with col3:
     st.metric("⚠️ Supply Risk", risk)
 
 st.divider()
 
-# ✅ OPTIMIZATION: Use cached scenario comparison
+# Scenario Comparison Chart
 st.subheader("📊 Four-Scenario Comparison")
 
-scenarios, comp_data = calculate_scenario_comparison(fx_rate, subsidy_billions)
+scenarios = [
+    "1. $200/bbl + Status Quo",
+    "2. <$200/bbl + Status Quo",
+    "3. $200/bbl + Repeal",
+    "4. <$200/bbl + Stockpile"
+]
 
-# ✅ OPTIMIZATION: Simplified Plotly chart for faster rendering
+comp_data = [
+    model.run_simulation(200, fx_rate, 0, 0, "Status Quo (Deregulation)")[0],
+    model.run_simulation(82, fx_rate, 0, 0, "Status Quo (Deregulation)")[0],
+    model.run_simulation(200, fx_rate, subsidy_billions, 90, "Repeal Deregulation (Price Cap)")[0],
+    model.run_simulation(82, fx_rate, subsidy_billions, 0, "Stockpile Strategy")[0]
+]
+
 fig = go.Figure()
 fig.add_trace(go.Bar(
     x=scenarios,
-    y=[round(p, 2) for p in comp_data],  # Round to reduce data size
+    y=comp_data,
     text=[f"₱{p:.2f}" for p in comp_data],
     textposition='auto',
     marker_color=['#FF4B4B', '#4B95FF', '#FFC107', '#00C853'],
-    hovertemplate="<b>%{x}</b><br>Price: ₱%{y:.2f}/L<extra></extra>"
 ))
 
 fig.update_layout(
     yaxis_title="Price (PHP per Liter)",
     template="plotly_white",
-    height=400,  # ✅ Reduced height for faster load
-    margin=dict(t=30, b=30, l=30, r=30),  # ✅ Reduced margins
-    showlegend=False,
-    xaxis_tickfont_size=10  # ✅ Smaller font for long labels
+    height=400,
+    showlegend=False
 )
 
-st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})  # ✅ Hide toolbar
+st.plotly_chart(fig, use_container_width=True)
 
 # Additional Analysis
 st.divider()
@@ -194,32 +172,47 @@ with col_b:
     - Risk: Supply reduction if caps too low
     """)
 
-# ✅ FIXED: Download Data Section with proper pandas import
+# Download Data
 st.divider()
-df_data = pd.DataFrame({
+csv_data = pd.DataFrame({
     'Scenario': scenarios,
-    'Pump_Price_PHP': [round(p, 2) for p in comp_data],
+    'Pump_Price_PHP': comp_data,
     'Crude_Price_USD': [200, 82, 200, 82],
-    'Policy': ['Status Quo', 'Status Quo', 'Repeal', 'Stockpile'],
-    'FX_Rate_PHP': [fx_rate]*4
-})
-
-csv_data = df_data.to_csv(index=False)
+    'Policy': ['Status Quo', 'Status Quo', 'Repeal', 'Stockpile']
+}).to_csv(index=False)
 
 st.download_button(
     label="📥 Download Simulation Data (CSV)",
     data=csv_data,
-    file_name=f"oil_simulation_{fx_rate}fx.csv",
+    file_name="oil_price_simulation.csv",
     mime="text/csv"
 )
 
 # Footer
 st.markdown("---")
 st.caption("""
-**Research Disclaimer:** Prototype model for academic purposes. 
-Actual prices may vary based on market conditions and policy implementation.
-Sources: DOE Philippines, OPEC, J.P. Morgan, Goldman Sachs (March 2026)
+**Research Disclaimer:** This is a prototype model for academic purposes. 
+Actual prices may vary based on market conditions, geopolitical events, and policy implementation.
+Data sources: DOE Philippines, OPEC, J.P. Morgan, Goldman Sachs (March 2026)
 """)
 
-# ✅ OPTIMIZATION: Add a "ping" to keep app warm (optional)
-# st.empty()  # Minimal placeholder to reduce initial payload
+# Add to sidebar in app.py
+with st.sidebar:
+    st.subheader("🌐 Live Data")
+    if st.checkbox("Use live crude price (Alpha Vantage API)"):
+        # Note: Requires free API key from https://www.alphavantage.co/support/#api-key
+        api_key = st.text_input("Alpha Vantage API Key", type="password")
+        if api_key:
+            import requests
+            try:
+                url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=BRENT&apikey={api_key}"
+                response = requests.get(url, timeout=5)
+                data = response.json()
+                live_price = float(data["Global Quote"]["05. price"])
+                crude_price = st.slider("Crude Oil Price (USD/barrel)", 
+                                       min_value=40, max_value=250, 
+                                       value=live_price, step=0.5,
+                                       help=f"Live Brent: ${live_price}")
+                st.success(f"✅ Live price loaded: ${live_price}")
+            except:
+                st.warning("⚠️ Could not fetch live data. Using manual input.")
