@@ -1,7 +1,6 @@
 # ==============================================================================
-# STREAMLIT VERSION - FINAL PRODUCTION READY
+# STREAMLIT VERSION - FIXED: Pickling Error + Manual API Key + PNG Export
 # File: app.py
-# Features: Line graph projection + Alpha Vantage API + Performance optimized
 # ==============================================================================
 import streamlit as st
 import plotly.graph_objects as go
@@ -9,6 +8,7 @@ import numpy as np
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
+import base64
 
 # ✅ Page Configuration - MUST be first Streamlit command
 st.set_page_config(
@@ -19,119 +19,111 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🔐 API KEY MANAGEMENT (Best Practice)
+# 🎮 MODEL CLASS - MOVED TO MODULE LEVEL (Fixes Pickling Error)
 # ==============================================================================
-def get_alpha_vantage_key():
-    """Get API key from st.secrets (preferred) or manual input"""
-    # Try to load from Streamlit secrets first (secure)
-    if "ALPHA_VANTAGE_KEY" in st.secrets:
-        return st.secrets["ALPHA_VANTAGE_KEY"]
-    return None
+class OilMarketStackelberg:
+    """Stackelberg Game Theory Model for Philippines Oil Market"""
+    
+    def __init__(self):
+        self.liters_per_barrel = 158.987
+        self.base_excise_tax = 12.00
+        self.vat_rate = 0.12
+        self.refining_margin = 0.15
+        self.freight_insurance = 2.5
+        
+    def calculate_landed_cost(self, crude_price_usd, fx_rate):
+        """Calculate cost per liter before taxes and margins"""
+        cost_per_barrel_php = (crude_price_usd + self.freight_insurance) * fx_rate
+        return cost_per_barrel_php / self.liters_per_barrel
 
-# ==============================================================================
-# 🎮 MODEL CLASS WITH CACHING
-# ==============================================================================
-@st.cache_data
-def get_model():
-    """Cached model instance to avoid re-initialization"""
-    class OilMarketStackelberg:
-        def __init__(self):
-            self.liters_per_barrel = 158.987
-            self.base_excise_tax = 12.00
-            self.vat_rate = 0.12
-            self.refining_margin = 0.15
-            self.freight_insurance = 2.5
-            
-        def calculate_landed_cost(self, crude_price_usd, fx_rate):
-            cost_per_barrel_php = (crude_price_usd + self.freight_insurance) * fx_rate
-            return cost_per_barrel_php / self.liters_per_barrel
-
-        def follower_response(self, cost_per_liter, scenario, subsidy_amount, price_cap):
-            base_price = cost_per_liter * (1 + self.refining_margin) + self.base_excise_tax
-            price_with_tax = base_price / (1 - self.vat_rate)
-            
-            if scenario == "Status Quo (Deregulation)":
-                strategic_markup = 2.0
-                final_price = price_with_tax + strategic_markup
-                subsidy_effect = 0
-            elif scenario == "Repeal Deregulation (Price Cap)":
-                if price_cap > 0:
-                    final_price = min(price_with_tax, price_cap)
-                else:
-                    final_price = price_with_tax
-                subsidy_effect = subsidy_amount / 1000
-            elif scenario == "Stockpile Strategy":
-                strategic_markup = 0.5
-                final_price = price_with_tax + strategic_markup
-                subsidy_effect = 0
+    def follower_response(self, cost_per_liter, scenario, subsidy_amount, price_cap):
+        """Simulate oil companies' pricing response to government policy"""
+        base_price = cost_per_liter * (1 + self.refining_margin) + self.base_excise_tax
+        price_with_tax = base_price / (1 - self.vat_rate)
+        
+        if scenario == "Status Quo (Deregulation)":
+            strategic_markup = 2.0
+            final_price = price_with_tax + strategic_markup
+            subsidy_effect = 0
+        elif scenario == "Repeal Deregulation (Price Cap)":
+            if price_cap > 0:
+                final_price = min(price_with_tax, price_cap)
             else:
                 final_price = price_with_tax
-                subsidy_effect = 0
+            subsidy_effect = subsidy_amount / 1000
+        elif scenario == "Stockpile Strategy":
+            strategic_markup = 0.5
+            final_price = price_with_tax + strategic_markup
+            subsidy_effect = 0
+        else:
+            final_price = price_with_tax
+            subsidy_effect = 0
 
-            return max(0, final_price - subsidy_effect)
+        return max(0, final_price - subsidy_effect)
 
-        def run_simulation(self, crude_price, fx_rate, subsidy_billions, price_cap, scenario):
-            cost = self.calculate_landed_cost(crude_price, fx_rate)
-            pump_price = self.follower_response(cost, scenario, subsidy_billions, price_cap)
-            
-            supply_risk = "LOW"
-            if scenario == "Repeal Deregulation (Price Cap)" and price_cap > 0:
-                if price_cap < (cost * (1 + self.refining_margin)):
-                    supply_risk = "🔴 HIGH (Shortage Likely)"
-                elif price_cap < pump_price:
-                    supply_risk = "🟡 MODERATE"
-            
-            return pump_price, supply_risk, cost
+    def run_simulation(self, crude_price, fx_rate, subsidy_billions, price_cap, scenario):
+        """Run full simulation and return pump price, risk, and cost"""
+        cost = self.calculate_landed_cost(crude_price, fx_rate)
+        pump_price = self.follower_response(cost, scenario, subsidy_billions, price_cap)
         
-        def generate_projection(self, start_price, fx_rate, scenario, subsidy, cap, days=31):
-            """Generate March-April 2026 price projection with volatility"""
-            dates = pd.date_range(start="2026-03-22", periods=days, freq='D')
-            prices = []
-            
-            # Scenario-based volatility and trend
-            if scenario == "Status Quo (Deregulation)":
-                volatility = 0.03  # 3% daily volatility
-                trend = 0.001  # Slight upward drift
-            elif scenario == "Repeal Deregulation (Price Cap)":
-                volatility = 0.01  # Lower volatility due to caps
-                trend = 0.0005
-            else:  # Stockpile
-                volatility = 0.015
-                trend = 0.0008
-            
-            current_price = start_price
-            for i in range(days):
-                # Random walk with drift
-                shock = np.random.normal(0, volatility)
-                current_price = current_price * (1 + trend + shock)
-                
-                # Apply policy constraints
-                if scenario == "Repeal Deregulation (Price Cap)" and cap > 0:
-                    current_price = min(current_price, cap + 2)  # Small buffer
-                
-                # Apply subsidy effect
-                if subsidy > 0:
-                    current_price = max(0, current_price - (subsidy / 1000))
-                    
-                prices.append(round(current_price, 2))
-            
-            return dates, prices
+        supply_risk = "LOW"
+        if scenario == "Repeal Deregulation (Price Cap)" and price_cap > 0:
+            if price_cap < (cost * (1 + self.refining_margin)):
+                supply_risk = "🔴 HIGH (Shortage Likely)"
+            elif price_cap < pump_price:
+                supply_risk = "🟡 MODERATE"
+        
+        return pump_price, supply_risk, cost
     
-    return OilMarketStackelberg()
+    def generate_projection(self, start_price, fx_rate, scenario, subsidy, cap, days=31):
+        """Generate March-April 2026 price projection with volatility"""
+        dates = pd.date_range(start="2026-03-22", periods=days, freq='D')
+        prices = []
+        
+        # Scenario-based volatility parameters
+        if scenario == "Status Quo (Deregulation)":
+            volatility = 0.03
+            trend = 0.001
+        elif scenario == "Repeal Deregulation (Price Cap)":
+            volatility = 0.01
+            trend = 0.0005
+        else:  # Stockpile
+            volatility = 0.015
+            trend = 0.0008
+        
+        current_price = start_price
+        for i in range(days):
+            # Random walk with drift
+            shock = np.random.normal(0, volatility)
+            current_price = current_price * (1 + trend + shock)
+            
+            # Apply policy constraints
+            if scenario == "Repeal Deregulation (Price Cap)" and cap > 0:
+                current_price = min(current_price, cap + 2)
+            
+            # Apply subsidy effect
+            if subsidy > 0:
+                current_price = max(0, current_price - (subsidy / 1000))
+                
+            prices.append(round(current_price, 2))
+        
+        return dates, prices
 
 # ==============================================================================
-# 🌐 ALPHA VANTAGE API (Cached + Error Handled)
+# 🌐 ALPHA VANTAGE API (Manual Key Only + Cached)
 # ==============================================================================
-@st.cache_data(ttl=3600)  # Cache for 1 hour to respect API limits
+@st.cache_data(ttl=3600)
 def fetch_live_crude_price(api_key):
     """Fetch live Brent crude price from Alpha Vantage"""
+    if not api_key or len(api_key.strip()) < 10:
+        return None, "Please enter a valid API key"
+    
     try:
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=BRENT&apikey={api_key}"
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=BRENT&apikey={api_key.strip()}"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        # Handle API error responses
         if "Error Message" in data or "Note" in data:
             return None, data.get("Error Message", data.get("Note", "Unknown API error"))
         
@@ -147,12 +139,13 @@ def fetch_live_crude_price(api_key):
         return None, f"Unexpected error: {str(e)}"
 
 # ==============================================================================
-# 📊 CHART GENERATION FUNCTIONS (Cached)
+# 📊 CHART GENERATION FUNCTIONS (Cached - These return picklable Plotly figures)
 # ==============================================================================
 @st.cache_data
 def generate_scenario_chart(fx_rate, subsidy_billions):
     """Generate the 4-scenario comparison bar chart"""
-    model = get_model()
+    model = OilMarketStackelberg()  # Instantiate directly (lightweight)
+    
     scenarios = [
         "1. $200/bbl + Status Quo",
         "2. <$200/bbl + Status Quo", 
@@ -188,22 +181,26 @@ def generate_scenario_chart(fx_rate, subsidy_billions):
     return fig
 
 @st.cache_data
-def generate_projection_chart(model, start_price, fx_rate, scenario, subsidy, cap, n_simulations=50):
+def generate_projection_chart(start_price, fx_rate, scenario, subsidy, cap, n_simulations=30, seed=None):
     """Generate March-April 2026 projection with uncertainty bands"""
-    # Run multiple simulations to create uncertainty band
+    model = OilMarketStackelberg()
+    
+    if seed is not None:
+        np.random.seed(seed)
+    
     all_projections = []
     
-    for _ in range(n_simulations):
+    for sim in range(n_simulations):
+        if seed is not None:
+            np.random.seed(seed + sim)
         dates, prices = model.generate_projection(start_price, fx_rate, scenario, subsidy, cap)
         all_projections.append(prices)
     
-    # Calculate statistics
     all_projections = np.array(all_projections)
     mean_prices = np.mean(all_projections, axis=0)
-    lower_bound = np.percentile(all_projections, 10, axis=0)  # 10th percentile
-    upper_bound = np.percentile(all_projections, 90, axis=0)  # 90th percentile
+    lower_bound = np.percentile(all_projections, 10, axis=0)
+    upper_bound = np.percentile(all_projections, 90, axis=0)
     
-    # Create Plotly figure
     fig = go.Figure()
     
     # Uncertainty band (shaded area)
@@ -227,7 +224,7 @@ def generate_projection_chart(model, start_price, fx_rate, scenario, subsidy, ca
         hovertemplate="<b>%{x|%b %d}</b><br>Price: ₱%{y:.2f}/L<extra></extra>"
     ))
     
-    # Current price marker
+    # Starting price marker
     fig.add_trace(go.Scatter(
         x=[dates[0]],
         y=[start_price],
@@ -252,6 +249,28 @@ def generate_projection_chart(model, start_price, fx_rate, scenario, subsidy, ca
     return fig, dates, mean_prices
 
 # ==============================================================================
+# 🖼️ PNG EXPORT HELPER FUNCTIONS
+# ==============================================================================
+def fig_to_png_bytes(fig, width=1200, height=600, scale=2):
+    """Convert Plotly figure to PNG bytes"""
+    try:
+        # Try kaleido first (faster, better quality)
+        return fig.to_image(format="png", width=width, height=height, scale=scale)
+    except:
+        # Fallback: use plotly's default engine
+        return fig.to_image(format="png", width=width, height=height)
+
+def create_download_button_png(fig, filename, button_label):
+    """Create a Streamlit download button for PNG"""
+    try:
+        png_bytes = fig_to_png_bytes(fig)
+        b64 = base64.b64encode(png_bytes).decode()
+        href = f'<a href="data:image/png;base64,{b64}" download="{filename}" style="display:inline-block;padding:0.5rem 1rem;background:#4B95FF;color:white;text-decoration:none;border-radius:4px;font-weight:500">{button_label}</a>'
+        return href
+    except Exception as e:
+        return f"<span style='color:#e63946'>⚠️ PNG export unavailable: {str(e)}</span>"
+
+# ==============================================================================
 # 🎨 MAIN APP UI
 # ==============================================================================
 st.title("🛢️ Philippines Oil Price Stackelberg Simulator")
@@ -266,30 +285,30 @@ Interactive Game Theory Model for Crude Oil Price Scenarios & Pump Price Impact
 with st.sidebar:
     st.header("⚙️ Model Parameters")
     
-    # 🔐 Alpha Vantage Integration
+    # 🔐 Alpha Vantage - Manual Key Entry ONLY
     st.subheader("🌐 Live Crude Price")
     
-    api_key = get_alpha_vantage_key()
     use_live = st.checkbox("Use live Brent price", value=False)
     
     if use_live:
-        # Allow manual override if secrets not set
-        if not api_key:
-            api_key = st.text_input("Alpha Vantage API Key", type="password", 
-                                   help="Get free key: https://www.alphavantage.co/support/#api-key")
+        api_key = st.text_input(
+            "Alpha Vantage API Key", 
+            type="password",
+            help="Get free key: https://www.alphavantage.co/support/#api-key",
+            placeholder="Enter your API key..."
+        )
         
-        if api_key:
-            with st.spinner("🔄 Fetching live price..."):
+        if api_key and st.button("🔄 Fetch Live Price", type="primary"):
+            with st.spinner("Fetching..."):
                 live_price, error = fetch_live_crude_price(api_key)
             
             if error:
-                st.warning(f"⚠️ {error}")
+                st.error(f"⚠️ {error}")
                 crude_price = st.slider("Crude Price (USD/bbl)", 40, 250, 82, 5)
             else:
                 st.success(f"✅ Live Brent: ${live_price:.2f}")
                 crude_price = st.slider("Crude Price (USD/bbl)", 40, 250, float(live_price), 0.5)
         else:
-            st.info("💡 Enter API key above or set in `.streamlit/secrets.toml`")
             crude_price = st.slider("Crude Price (USD/bbl)", 40, 250, 82, 5)
     else:
         crude_price = st.slider("Crude Price (USD/bbl)", 40, 250, 82, 5)
@@ -310,7 +329,8 @@ with st.sidebar:
 # ==============================================================================
 # 🔄 RUN MODEL & DISPLAY METRICS
 # ==============================================================================
-model = get_model()
+# ✅ FIXED: Instantiate model directly (no caching needed for lightweight class)
+model = OilMarketStackelberg()
 price, risk, cost = model.run_simulation(crude_price, fx_rate, subsidy_billions, price_cap, scenario)
 
 # Metrics Display
@@ -329,20 +349,27 @@ st.divider()
 # ==============================================================================
 st.subheader("📊 Four-Scenario Comparison")
 fig_bar = generate_scenario_chart(fx_rate, subsidy_billions)
-st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': True})
+
+# PNG Export for Bar Chart
+st.markdown(create_download_button_png(fig_bar, "scenario_comparison.png", "📥 Download Bar Chart as PNG"), unsafe_allow_html=True)
 
 # ==============================================================================
-# 📈 CHART 2: March-April 2026 Projection (Line Chart) ✨ NEW ✨
+# 📈 CHART 2: March-April 2026 Projection (Line Chart)
 # ==============================================================================
 st.subheader("📈 Price Projection: March-April 2026")
 st.markdown(f"*Based on current parameters: Crude ${crude_price}/bbl, FX ₱{fx_rate}/USD, Scenario: {scenario}*")
 
 with st.spinner("🔄 Generating projection..."):
+    # ✅ FIXED: Pass primitive parameters to cached function (not the model object)
     fig_line, proj_dates, proj_prices = generate_projection_chart(
-        model, price, fx_rate, scenario, subsidy_billions, price_cap
+        price, fx_rate, scenario, subsidy_billions, price_cap, n_simulations=30, seed=42
     )
 
-st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
+st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': True})
+
+# PNG Export for Line Chart
+st.markdown(create_download_button_png(fig_line, "price_projection.png", "📥 Download Projection Chart as PNG"), unsafe_allow_html=True)
 
 # Projection Summary Stats
 col_p1, col_p2, col_p3 = st.columns(3)
@@ -385,7 +412,6 @@ st.subheader("📥 Export Data")
 
 col_d1, col_d2 = st.columns(2)
 with col_d1:
-    # Scenario comparison CSV
     scenarios_list = [
         "1. $200/bbl + Status Quo",
         "2. <$200/bbl + Status Quo",
@@ -415,7 +441,6 @@ with col_d1:
     )
 
 with col_d2:
-    # Projection CSV
     df_projection = pd.DataFrame({
         'Date': proj_dates,
         'Projected_Price_PHP': [round(p, 2) for p in proj_prices],
@@ -439,23 +464,3 @@ st.caption("""
 Actual prices may vary based on market conditions, geopolitical events, and policy implementation.
 Sources: DOE Philippines, OPEC, J.P. Morgan, Goldman Sachs, Alpha Vantage (March 2026)
 """)
-
-# ==============================================================================
-# 🔧 DEBUG INFO (Hidden by default, show with ?debug=true in URL)
-# ==============================================================================
-if st.query_params.get("debug") == "true":
-    with st.expander("🔧 Debug Information", expanded=False):
-        st.json({
-            "crude_price": crude_price,
-            "fx_rate": fx_rate,
-            "subsidy": subsidy_billions,
-            "price_cap": price_cap,
-            "scenario": scenario,
-            "calculated_price": price,
-            "api_key_set": bool(get_alpha_vantage_key())
-        })
-
-# Add at bottom of sidebar section
-if st.button("🔄 Reset to Defaults"):
-    st.session_state.clear()
-    st.rerun()
