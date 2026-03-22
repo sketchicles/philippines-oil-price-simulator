@@ -3,7 +3,7 @@
 
 ---
 
-## 📄 Document 2: GitHub README.md Template
+## 📄 README.md 
 
 ```markdown
 # 🛢️ Philippines Oil Price Stackelberg Simulator
