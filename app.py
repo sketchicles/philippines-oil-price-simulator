@@ -22,7 +22,7 @@ def render_academic_documentation():
     Citations follow APA 7th edition format.
     """
     
-    with st.expander("📚 Academic Documentation: Methodology, Parameters & Scenario Analysis", expanded=False):
+    with st.expander("📚 Academic Documentation: Methodology, Parameters & Scenario Analysis", expanded=True):
         
         # ======================================================================
         # SECTION 1: BASELINE ASSUMPTIONS
